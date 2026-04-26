@@ -254,8 +254,17 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
                 });
               }
             }
-          } catch {
-            // Auto-retain failures are silent — background best-effort
+          } catch (err) {
+            if (client.tui?.showToast) {
+              await client.tui.showToast({
+                body: {
+                  title: "Hindsight Auto-Retain",
+                  message: "Failed to parse model response. Retrying next idle.",
+                  variant: "error",
+                  duration: 5000
+                }
+              });
+            }
           }
         })();
       }

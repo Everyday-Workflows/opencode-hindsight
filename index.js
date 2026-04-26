@@ -231,7 +231,20 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
                   source: `session-${sessionId}`
                 }]
               });
-                            await client.session.prompt({
+                            // Send toast notification
+              if (client.tui?.showToast) {
+                await client.tui.showToast({
+                  body: {
+                    title: "Hindsight Auto-Retain",
+                    message: "Saved new architectural context to memory bank.",
+                    variant: "success",
+                    duration: 5000
+                  }
+                });
+              }
+              
+              // Also inject the context so the model knows it was saved
+              await client.session.prompt({
                 path: { id: sessionId },
                 body: {
                   parts: [{ type: "text", text: `[System: Auto-Retain]\nSaved to Hindsight Memory Bank:\n\n${analysis.content}` }],

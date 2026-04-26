@@ -15,24 +15,29 @@ It still exposes `hindsight_retain` and `hindsight_recall` for explicit memory m
 
 ## Installation
 
-Add the plugin to your `~/.config/opencode/opencode.json`:
+Because this plugin runs locally and is not published to the npm registry, you should install it by cloning the repository and wrapping it in your OpenCode plugins directory.
 
-\`\`\`json
-{
-  "plugin": [
-    "@everyday-workflows/opencode-hindsight"
-  ]
-}
-\`\`\`
+1. Clone this repository to your local machine:
+   ```bash
+   git clone https://github.com/Everyday-Workflows/opencode-hindsight.git ~/Projects/opencode-hindsight
+   ```
+
+2. Create a plugin wrapper file in your OpenCode plugins directory (e.g. `~/.config/opencode/plugins/hindsight.js`):
+   ```javascript
+   // ~/.config/opencode/plugins/hindsight.js
+   export { default } from "/path/to/your/clone/opencode-hindsight/index.js";
+   ```
+
+*Note: OpenCode automatically discovers `.js` files in the `plugins` directory. Do not add local paths to the `plugin` array in `opencode.json`.*
 
 ## Configuration
 
 The plugin uses the following environment variables (set these in your environment or via a `.env` loader plugin):
 
-- \`HINDSIGHT_ENDPOINT\`: URL to your Hindsight instance (default: \`http://localhost:8888\`)
-- \`HINDSIGHT_BANK_ID\`: The specific bank ID to use (default: \`opencode-memory\`)
+- `HINDSIGHT_ENDPOINT`: URL to your Hindsight instance (default: `http://localhost:8888`)
+- `HINDSIGHT_BANK_ID`: The specific bank ID to use (default: `opencode-memory`)
 
-For the background Auto-Retain LLM calls, it reads \`small_model\` from \`opencode.json\` and uses one of the following API keys based on the provider:
-- \`OPENROUTER_API_KEY\`
-- \`OPENAI_API_KEY\`
-- \`ANTHROPIC_API_KEY\`
+For the background Auto-Retain LLM calls, it reads `small_model` from `opencode.json` and uses one of the following API keys based on the provider:
+- `OPENROUTER_API_KEY`
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`

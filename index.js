@@ -209,10 +209,17 @@ If something valuable occurred that should be remembered in future sessions, ret
   "retain": true,
   "content": "A dense, high-fidelity summary of the facts, decisions, or fixes. Include exact file paths or code snippets if necessary.",
   "tags": ["tag1", "tag2"]
-}`;
+}
+
+CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Based on the conversation" or markdown formatting.`;
 
             const raw = await callModel(smallModel, prompt);
-            const jsonStr = raw.replace(/^\s*\x60\x60\x60json\n/, '').replace(/\n\x60\x60\x60\s*$/, '').trim();
+            // Attempt to extract JSON if the model included conversational text
+            const jsonMatch = raw.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+              throw new Error("Model did not return valid JSON: " + raw.substring(0, 50) + "...");
+            }
+            const jsonStr = jsonMatch[0];
             const analysis = JSON.parse(jsonStr);
 
             if (analysis.retain && analysis.content) {

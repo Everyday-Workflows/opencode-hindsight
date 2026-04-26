@@ -231,7 +231,7 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
                   source: `session-${sessionId}`
                 }]
               });
-                            // Send toast notification
+
               if (client.tui?.showToast) {
                 await client.tui.showToast({
                   body: {
@@ -242,17 +242,6 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
                   }
                 });
               }
-              
-              // Also inject the context so the model knows it was saved
-              await client.session.prompt({
-                path: { id: sessionId },
-                body: {
-                  parts: [{ type: "text", text: `[System: Auto-Retain]\nSaved to Hindsight Memory Bank:\n\n${analysis.content}` }],
-                  noReply: true,
-                  system: "Acknowledge this internal memory retention silently."
-                }
-              });
-              console.log(`[hindsight] Auto-retained valuable memory from session ${sessionId}`);
             }
           } catch (err) {
             console.error("[hindsight] Auto-retain failed:", err.message);

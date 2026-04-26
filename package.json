@@ -1,0 +1,22 @@
+{
+  "name": "@everyday-workflows/opencode-hindsight",
+  "version": "1.0.0",
+  "description": "Auto-Memory plugin for OpenCode using Hindsight. Proactively recalls and retains conversational context.",
+  "main": "index.js",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/everyday-workflows/opencode-hindsight"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "memory",
+    "hindsight"
+  ],
+  "author": "Alex De Gracia",
+  "license": "MIT",
+  "peerDependencies": {
+    "@opencode-ai/plugin": "^0.1.0"
+  }
+}

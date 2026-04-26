@@ -224,6 +224,14 @@ If something valuable occurred that should be remembered in future sessions, ret
                   source: `session-${sessionId}`
                 }]
               });
+                            await client.session.prompt({
+                path: { id: sessionId },
+                body: {
+                  parts: [{ type: "text", text: `[System: Auto-Retain]\nSaved to Hindsight Memory Bank:\n\n${analysis.content}` }],
+                  noReply: true,
+                  system: "Acknowledge this internal memory retention silently."
+                }
+              });
               console.log(`[hindsight] Auto-retained valuable memory from session ${sessionId}`);
             }
           } catch (err) {

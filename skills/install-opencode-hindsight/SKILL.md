@@ -30,5 +30,14 @@ Use this skill when the user asks to install the OpenCode Hindsight plugin (the 
    - `HINDSIGHT_BANK_ID`: The bank ID to use (default: `opencode-memory`)
    - Model API Keys: `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` (depending on their `small_model` setting in `opencode.json`).
 
+4. **Restart OpenCode**:
+   Remind the user to restart OpenCode for the new plugin to be detected and loaded.
+
+## Features & Tools Provided
+After installation, this plugin automatically adds:
+- **Auto-Recall**: Intercepts the first user message of a session and injects relevant past memories.
+- **Auto-Retain**: Summarizes the conversation and stores key architectural decisions/bug fixes into Hindsight when the session goes idle (with an in-chat TUI Toast notification).
+- **Manual Tools**: Exposes `hindsight_retain` and `hindsight_recall` for explicit memory operations.
+
 ## Important Rules
 - **NEVER** add this plugin to the `plugin` array in `opencode.json`. OpenCode automatically discovers `.js` files in the `~/.config/opencode/plugins/` directory. Adding local paths to the `plugin` array will break OpenCode.

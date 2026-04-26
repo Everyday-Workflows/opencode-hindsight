@@ -1,3 +1,5 @@
+![Hindsight Plugin Banner](banner.png)
+
 # OpenCode Hindsight Plugin
 
 A magical Auto-Memory plugin for OpenCode. It silently integrates with a [Hindsight](https://github.com/hindsight-memory/hindsight) memory bank to give your AI coding assistant perfect recall.

@@ -120,9 +120,9 @@ export default async (ctx) => {
   
   const { client } = ctx;
   let opencodeConfig = {};
-  const os = require("os");
-  const path = require("path");
-  const fs = require("fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const fs = await import("node:fs/promises");
   try {
     const rawConfig = await fs.readFile(path.join(os.homedir(), ".config", "opencode", "opencode.json"), "utf8");
     opencodeConfig = JSON.parse(rawConfig);

@@ -214,15 +214,26 @@ If something valuable occurred that should be remembered in future sessions, ret
 CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Based on the conversation" or markdown formatting.`;
 
             const raw = await callModel(smallModel, prompt);
-            // Attempt to extract JSON if the model included conversational text
-            const jsonMatch = raw.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-              throw new Error("Model did not return valid JSON: " + raw.substring(0, 50) + "...");
+            let analysis;
+            try {
+              const trimmed = raw.trim();
+              const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+              const cleaned = fence ? fence[1].trim() : trimmed;
+              analysis = JSON.parse(cleaned);
+            } catch {
+              const jsonMatch = raw.match(/\{[\s\S]*?\}/);
+              if (jsonMatch) {
+                try {
+                  analysis = JSON.parse(jsonMatch[0]);
+                } catch {
+                  return;
+                }
+              } else {
+                return;
+              }
             }
-            const jsonStr = jsonMatch[0];
-            const analysis = JSON.parse(jsonStr);
 
-            if (analysis.retain && analysis.content) {
+            if (analysis && analysis.retain && analysis.content) {
               const bankId = getBankId();
               await hindsightFetch(`/v1/default/banks/${bankId}/memories`, {
                 items: [{
@@ -243,8 +254,8 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
                 });
               }
             }
-          } catch (err) {
-            console.error("[hindsight] Auto-retain failed:", err.message);
+          } catch {
+            // Auto-retain failures are silent — background best-effort
           }
         })();
       }

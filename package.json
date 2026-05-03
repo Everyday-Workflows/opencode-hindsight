@@ -1,6 +1,6 @@
 {
   "name": "@everyday-workflows/opencode-hindsight",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Auto-Memory plugin for OpenCode using Hindsight. Proactively recalls and retains conversational context.",
   "main": "index.js",
   "type": "module",

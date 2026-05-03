@@ -7,24 +7,61 @@
  *
  * Requires env vars:
  *   HINDSIGHT_ENDPOINT (default: http://localhost:8888)
- *   HINDSIGHT_BANK_ID   (default: opencode-memory)
+ *   HINDSIGHT_BANK_ID   (override; defaults to sanitized project dir name)
  */
 
 import { tool } from "@opencode-ai/plugin"
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
+import { execSync } from "node:child_process";
 
 
 const DEFAULT_ENDPOINT = "http://localhost:8888"
-const DEFAULT_BANK_ID = "opencode-memory"  // Deliberately separate from Hermes bank
+const LOG_FILE = "/tmp/hindsight-plugin.log"
 
 function getEndpoint() {
   return (process.env.HINDSIGHT_ENDPOINT || DEFAULT_ENDPOINT).replace(/\/$/, "")
 }
 
-function getBankId() {
-  return process.env.HINDSIGHT_BANK_ID || DEFAULT_BANK_ID
+// File-only logger. Never writes to stdout/stderr so errors don't leak into OpenCode chat.
+async function logEntry(level, message, meta) {
+  try {
+    const ts = new Date().toISOString()
+    const extra = meta ? ` ${JSON.stringify(meta)}` : ""
+    await fs.appendFile(LOG_FILE, `${ts} [${level}] ${message}${extra}\n`)
+  } catch {
+    // Log writes must never throw
+  }
+}
+
+// Unified user-visible notification. Toast only; never console.
+// level: "info" | "success" | "warning" | "error"
+async function notify(client, level, title, message, opts = {}) {
+  await logEntry(level, `${title}: ${message}`, opts.meta)
+  if (client?.tui?.showToast) {
+    try {
+      await client.tui.showToast({
+        body: {
+          title,
+          message,
+          variant: level,
+          duration: opts.duration ?? (level === "error" ? 5000 : 4000),
+        },
+      })
+    } catch (err) {
+      // Toast display failure should not break the plugin
+      await logEntry("warn", "Toast display failed", { error: err?.message })
+    }
+  }
+}
+
+function sanitizeBankId(value) {
+  const sanitized = (value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return sanitized || "default"
 }
 
 async function hindsightFetch(path, body) {
@@ -53,21 +90,30 @@ async function callModel(model, prompt) {
     openai: { url: "https://api.openai.com/v1/chat/completions", key: process.env.OPENAI_API_KEY },
     openrouter: { url: "https://openrouter.ai/api/v1/chat/completions", key: process.env.OPENROUTER_API_KEY },
     anthropic: { url: "https://api.anthropic.com/v1/messages", key: process.env.ANTHROPIC_API_KEY },
+    "ollama-cloud": { url: "https://ollama.com/v1/chat/completions", key: process.env.OLLAMA_API_KEY },
   };
 
   const provider = providerConfigs[providerID];
   if (!provider?.key) throw new Error(`No API key found for provider: ${providerID}`);
 
-  const res = await fetch(provider.url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.key}` },
-    body: JSON.stringify({
-      model: modelID,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0,
-      max_tokens: 1500,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  let res;
+  try {
+    res = await fetch(provider.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.key}` },
+      body: JSON.stringify({
+        model: modelID,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0,
+        max_tokens: 1500,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
   const data = await res.json();
@@ -115,19 +161,31 @@ function formatContext(turns) {
 
 const sessionRecalled = new Set();
 const sessionIdleCount = new Map();
+const sessionLastProcessed = new Map();
+const sessionRetaining = new Set();
 
 export default async (ctx) => {
+  const projectRoot = (() => {
+    const dir = ctx.directory || process.cwd()
+    try {
+      return execSync("git rev-parse --show-toplevel", {
+        cwd: dir,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim()
+    } catch {
+      return dir
+    }
+  })()
+  const stableBankId = process.env.HINDSIGHT_BANK_ID || sanitizeBankId(path.basename(projectRoot))
   
   const { client } = ctx;
   let opencodeConfig = {};
-  const os = await import("node:os");
-  const path = await import("node:path");
-  const fs = await import("node:fs/promises");
   try {
     const rawConfig = await fs.readFile(path.join(os.homedir(), ".config", "opencode", "opencode.json"), "utf8");
     opencodeConfig = JSON.parse(rawConfig);
   } catch (e) {
-    console.error("[hindsight] Failed to read opencode.json:", e.message);
+    await logEntry("error", "Failed to read opencode.json", { error: e.message });
   }
   const smallModel = opencodeConfig.small_model || "openrouter/google/gemini-3-flash-preview";
 
@@ -146,7 +204,7 @@ export default async (ctx) => {
           
           (async () => {
             try {
-              const bankId = getBankId();
+              const bankId = stableBankId;
               // Fetch memories matching the user's initial request
               const result = await hindsightFetch(`/v1/default/banks/${bankId}/memories/recall`, {
                 query: text,
@@ -169,11 +227,21 @@ export default async (ctx) => {
                       system: "Acknowledge this internal memory recall silently."
                     }
                   });
-                  console.log(`[hindsight] Injected ${validMemories.length} relevant memories for session ${sessionId}`);
+                  await notify(
+                    client,
+                    "info",
+                    "Hindsight Auto-Recall",
+                    `Injected ${validMemories.length} memor${validMemories.length === 1 ? "y" : "ies"} from bank '${stableBankId}'.`,
+                    { meta: { sessionId, count: validMemories.length } }
+                  );
                 }
               }
             } catch (err) {
-              console.error("[hindsight] Auto-recall failed:", err.message);
+              await logEntry("error", "Auto-recall failed", {
+                sessionId,
+                error: err?.message,
+                stack: err?.stack,
+              });
             }
           })();
         }
@@ -186,24 +254,30 @@ export default async (ctx) => {
         sessionIdleCount.set(sessionId, count);
         
         if (count % 3 !== 0) return;
+        if (sessionRetaining.has(sessionId)) return;
 
         (async () => {
+          sessionRetaining.add(sessionId);
           try {
             const turns = await extractTurns(client, sessionId);
-            if (turns.length < 2) return; // Too short to matter
+            const lastProcessed = sessionLastProcessed.get(sessionId) || 0;
+            
+            if (turns.length - lastProcessed < 1) return; // Nothing new to process
+            
+            const newTurns = turns.slice(lastProcessed);
 
-            const contextText = formatContext(turns);
-            const prompt = `Analyze the following conversation between a user and an AI coding assistant.
-Identify if any of the following occurred:
+            const contextText = formatContext(newTurns);
+            const prompt = `Analyze the following segment of a conversation between a user and an AI coding assistant.
+Identify if any of the following occurred IN THIS SPECIFIC SEGMENT:
 1. A significant architectural decision or design choice was made.
 2. A non-obvious bug was resolved (extract the root cause and solution).
 3. A new workflow pattern or project convention was established.
 4. An integration or environment quirk was discovered.
 
-Conversation:
+Conversation Segment:
 ${contextText}
 
-If none of those occurred (e.g. just minor code edits, generic chatting, or failures), return exactly {"retain": false}.
+If none of those occurred in this segment (e.g. just minor code edits, generic chatting, or failures), return exactly {"retain": false}.
 If something valuable occurred that should be remembered in future sessions, return a JSON object in this exact format:
 {
   "retain": true,
@@ -214,6 +288,7 @@ If something valuable occurred that should be remembered in future sessions, ret
 CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Based on the conversation" or markdown formatting.`;
 
             const raw = await callModel(smallModel, prompt);
+            if (!raw) return;
             let analysis;
             try {
               const trimmed = raw.trim();
@@ -234,7 +309,7 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
             }
 
             if (analysis && analysis.retain && analysis.content) {
-              const bankId = getBankId();
+              const bankId = stableBankId;
               await hindsightFetch(`/v1/default/banks/${bankId}/memories`, {
                 items: [{
                   content: analysis.content,
@@ -243,28 +318,38 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
                 }]
               });
 
-              if (client.tui?.showToast) {
-                await client.tui.showToast({
-                  body: {
-                    title: "Hindsight Auto-Retain",
-                    message: "Saved new architectural context to memory bank.",
-                    variant: "success",
-                    duration: 5000
-                  }
-                });
-              }
+              await notify(
+                client,
+                "success",
+                "Hindsight Auto-Retain",
+                "Saved new architectural context to memory bank.",
+                { duration: 5000, meta: { sessionId, bankId } }
+              );
+
+              sessionLastProcessed.set(sessionId, turns.length);
+              return;
             }
+
+            sessionLastProcessed.set(sessionId, turns.length);
           } catch (err) {
-            if (client.tui?.showToast) {
-              await client.tui.showToast({
-                body: {
-                  title: "Hindsight Auto-Retain",
-                  message: "Failed to parse model response. Retrying next idle.",
-                  variant: "error",
-                  duration: 5000
-                }
-              });
-            }
+            await notify(
+              client,
+              "error",
+              "Hindsight Auto-Retain",
+              `Failed: ${err.message?.slice(0, 80) || "unknown error"}`,
+              {
+                duration: 5000,
+                meta: {
+                  sessionId,
+                  smallModel,
+                  error: err?.message,
+                  name: err?.name,
+                  stack: err?.stack,
+                },
+              }
+            );
+          } finally {
+            sessionRetaining.delete(sessionId);
           }
         })();
       }
@@ -288,7 +373,7 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
             .describe("Optional source identifier (e.g., filename or context)."),
         },
         async execute({ content, tags, source }) {
-          const bankId = getBankId()
+          const bankId = stableBankId
           const item = { content }
           if (tags?.length) item.tags = tags
           if (source) item.source = source
@@ -299,6 +384,13 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
           )
 
           const count = result?.items_count ?? "?"
+          await notify(
+            client,
+            "success",
+            "Hindsight Retain",
+            `Stored ${count} item(s) to bank '${bankId}'.`,
+            { meta: { bankId, count } }
+          );
           return `Retained ${count} item(s) to Hindsight bank '${bankId}'.`
         },
       }),
@@ -324,7 +416,7 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
             .describe("Optional tags to filter results."),
         },
         async execute({ query, limit = 10, tags }) {
-          const bankId = getBankId()
+          const bankId = stableBankId
           const payload = { query, limit }
           if (tags?.length) payload.tags = tags
 
@@ -334,6 +426,15 @@ CRITICAL: Return ONLY raw JSON. Do not include any conversational text like "Bas
           )
 
           const memories = result?.results || []
+          await notify(
+            client,
+            memories.length ? "info" : "warning",
+            "Hindsight Recall",
+            memories.length
+              ? `Found ${memories.length} memor${memories.length === 1 ? "y" : "ies"} in bank '${bankId}'.`
+              : `No memories found in bank '${bankId}'.`,
+            { meta: { bankId, count: memories.length, query } }
+          );
           if (!memories.length) {
             return `No memories found in bank '${bankId}' for query: "${query}"`
           }

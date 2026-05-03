@@ -36,11 +36,19 @@ Because this plugin runs locally and is not published to the npm registry, insta
    git clone https://github.com/Everyday-Workflows/opencode-hindsight.git ~/Projects/opencode-hindsight
    ```
 
-2. Create a plugin wrapper file in your OpenCode plugins directory (e.g. `~/.config/opencode/plugins/hindsight.js`):
+2. Install dependencies in the cloned repo (required so the plugin can resolve `@opencode-ai/plugin`):
+   ```bash
+   cd ~/Projects/opencode-hindsight
+   npm install
+   ```
+
+3. Create a plugin wrapper file in your OpenCode plugins directory (e.g. `~/.config/opencode/plugins/hindsight.js`):
    ```javascript
    // ~/.config/opencode/plugins/hindsight.js
    export { default } from "/path/to/your/clone/opencode-hindsight/index.js";
    ```
+
+4. Restart OpenCode. The `hindsight_retain` and `hindsight_recall` tools should appear in your tool list.
 
 *Note: OpenCode automatically discovers `.js` files in the `plugins` directory. Do not add local paths to the `plugin` array in `opencode.json`.*
 
